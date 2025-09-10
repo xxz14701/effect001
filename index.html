@@ -403,6 +403,7 @@
                     <button class="download-btn" id="downloadGifBtn">🎞️ 下載 GIF 動畫</button>
                     <button class="download-btn" id="downloadMp4Btn">🎬 下載 MP4 影片</button>
                     <button class="download-btn" id="downloadImageBtn">🖼️ 下載靜態圖片</button>
+                    <button class="download-btn" id="convertMp4Btn">🔁 轉 MP4（由 WebM）</button>
                 </div>
             </div>
         </div>
@@ -441,6 +442,8 @@
     </div>
 
     <script src="gif.js"></script>
+    <!-- ffmpeg.wasm for MP4 conversion (jsDelivr) -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/dist/ffmpeg.min.js"></script>
     <script>
         // 強制所有 2D context 使用 willReadFrequently，包含 gif.js 內部建立的 canvas
         (function() {
@@ -480,6 +483,37 @@
                 this.setupEventListeners();
             }
             
+            async ensureFFmpeg() {
+                if (this.ffmpeg && this.ffmpeg.isLoaded) return;
+                if (!window.FFmpeg) throw new Error('FFmpeg library not loaded');
+                const { createFFmpeg } = window.FFmpeg;
+                this.ffmpeg = createFFmpeg({
+                    log: false,
+                    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
+                });
+                await this.ffmpeg.load();
+            }
+            
+            async convertWebmToMp4(webmBlob) {
+                await this.ensureFFmpeg();
+                const data = new Uint8Array(await webmBlob.arrayBuffer());
+                // 寫入輸入檔
+                try { this.ffmpeg.FS('unlink', 'input.webm'); } catch(_) {}
+                try { this.ffmpeg.FS('unlink', 'output.mp4'); } catch(_) {}
+                this.ffmpeg.FS('writeFile', 'input.webm', data);
+                // 轉檔：H.264 + yuv420p + faststart
+                await this.ffmpeg.run(
+                    '-i', 'input.webm',
+                    '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p',
+                    '-movflags', 'faststart',
+                    '-an',
+                    'output.mp4'
+                );
+                const out = this.ffmpeg.FS('readFile', 'output.mp4');
+                return new Blob([out.buffer], { type: 'video/mp4' });
+            }
+            
             setupEventListeners() {
                 const fileInput = document.getElementById('fileInput');
                 const uploadArea = document.getElementById('uploadArea');
@@ -492,6 +526,7 @@
                 const downloadGifBtn = document.getElementById('downloadGifBtn');
                 const downloadMp4Btn = document.getElementById('downloadMp4Btn');
                 const downloadImageBtn = document.getElementById('downloadImageBtn');
+                const convertMp4Btn = document.getElementById('convertMp4Btn');
                 const duration = document.getElementById('duration');
                 const lowLoadBtn = document.getElementById('lowLoadBtn');
                 
@@ -552,6 +587,41 @@
                 downloadGifBtn.addEventListener('click', () => this.downloadGif());
                 downloadMp4Btn.addEventListener('click', () => this.downloadMp4());
                 downloadImageBtn.addEventListener('click', () => this.downloadImage());
+                
+                if (convertMp4Btn) {
+                    convertMp4Btn.addEventListener('click', async () => {
+                        try {
+                            const picker = document.createElement('input');
+                            picker.type = 'file';
+                            picker.accept = 'video/webm';
+                            picker.onchange = async () => {
+                                const file = picker.files && picker.files[0];
+                                if (!file) return;
+                                this.setButtonsState(true);
+                                this.showProgress('正在轉檔為 MP4 (瀏覽器端轉檔)...');
+                                try {
+                                    const mp4Blob = await this.convertWebmToMp4(file);
+                                    const url = URL.createObjectURL(mp4Blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `convert_${Date.now()}.mp4`;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                } catch (e) {
+                                    console.error('轉檔 MP4 失敗：', e);
+                                    alert('轉檔 MP4 失敗，請確認檔案或降低大小後重試');
+                                } finally {
+                                    this.hideProgress();
+                                    this.setButtonsState(false);
+                                }
+                            };
+                            picker.click();
+                        } catch (e) {
+                            console.error(e);
+                            alert('轉檔器初始化失敗，請稍後重試');
+                        }
+                    });
+                }
 
                 // 快速低負載設定
                 if (lowLoadBtn) {
@@ -1457,7 +1527,7 @@
             
             async downloadMp4() {
                 this.setButtonsState(true);
-                this.showProgress('正在生成 MP4 影片...');
+                this.showProgress('正在錄製並轉檔 MP4...');
                 
                 const fps = parseInt(document.getElementById('fps').value);
                 const duration = parseInt(document.getElementById('duration').value);
@@ -1465,7 +1535,7 @@
                 
                 try {
                     const recordCanvas = document.createElement('canvas');
-                    const recordCtx = recordCanvas.getContext('2d');
+                    const recordCtx = recordCanvas.getContext('2d', { willReadFrequently: true });
                     recordCanvas.width = this.canvas.width;
                     recordCanvas.height = this.canvas.height;
                     
@@ -1483,17 +1553,32 @@
                         }
                     };
                     
-                    this.mediaRecorder.onstop = () => {
-                        const blob = new Blob(this.recordedChunks, {type: 'video/webm'});
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `effect_${this.effectType}_${Date.now()}.webm`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        
-                        this.hideProgress();
-                        this.setButtonsState(false);
+                    this.mediaRecorder.onstop = async () => {
+                        try {
+                            const webmBlob = new Blob(this.recordedChunks, {type: 'video/webm'});
+                            this.showProgress('正在轉檔為 MP4 (瀏覽器端轉檔)...');
+                            const mp4Blob = await this.convertWebmToMp4(webmBlob);
+                            const url = URL.createObjectURL(mp4Blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `effect_${this.effectType}_${Date.now()}.mp4`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        } catch (e) {
+                            console.error('轉檔 MP4 失敗，改下載 WebM：', e);
+                            // 回退：提供 WebM
+                            const blob = new Blob(this.recordedChunks, {type: 'video/webm'});
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `effect_${this.effectType}_${Date.now()}.webm`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            alert('瀏覽器端轉檔 MP4 失敗，已改下載 WebM。可用 ffmpeg 桌面工具轉檔。');
+                        } finally {
+                            this.hideProgress();
+                            this.setButtonsState(false);
+                        }
                     };
                     
                     // 開始錄製
