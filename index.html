@@ -401,49 +401,18 @@
                 
                 <div style="text-align: center;">
                     <button class="download-btn" id="downloadGifBtn">🎞️ 下載 GIF 動畫</button>
-                    <button class="download-btn" id="downloadMp4Btn">🎬 下載 MP4 影片</button>
+                    <button class="download-btn" id="downloadMp4Btn">🎬 下載 WebM 影片</button>
                     <button class="download-btn" id="downloadImageBtn">🖼️ 下載靜態圖片</button>
-                    <button class="download-btn" id="convertMp4Btn">🔁 轉 MP4（由 WebM）</button>
+                    
                 </div>
             </div>
         </div>
 
-        <div class="effect-info">
-            <h3>💡 特效說明</h3>
-            <div class="effect-categories">
-                <div class="category-section">
-                    <div class="category-title">天氣效果</div>
-                    <p>• 下雪、下雨、暴風雨、閃電<br>• 真實的天氣模擬效果</p>
-                </div>
-                <div class="category-section">
-                    <div class="category-title">自然效果</div>
-                    <p>• 落葉、櫻花、螢火蟲、蝴蝶<br>• 自然界的美麗元素</p>
-                </div>
-                <div class="category-section">
-                    <div class="category-title">夢幻效果</div>
-                    <p>• 星星、泡泡、愛心、閃爍<br>• 浪漫夢幻的視覺體驗</p>
-                </div>
-                <div class="category-section">
-                    <div class="category-title">科技效果</div>
-                    <p>• 數字雨、粒子流、故障、霓虹<br>• 現代科技風格效果</p>
-                </div>
-                <div class="category-section">
-                    <div class="category-title">魔法效果</div>
-                    <p>• 魔法粒子、仙女塵、傳送門、符文<br>• 神秘魔幻的特殊效果</p>
-                </div>
-            </div>
-            <p style="margin-top: 15px;">
-                • 支援圖片格式：JPG, PNG, GIF, WebP<br>
-                • 支援影片格式：MP4, WebM, MOV<br>
-                • 新增多種混合模式和顏色選項<br>
-                • 20種不同類型的動態特效
-            </p>
-        </div>
-    </div>
+       
 
     <script src="gif.js"></script>
-    <!-- ffmpeg.wasm for MP4 conversion (jsDelivr) -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"></script>
+    <!-- ffmpeg.wasm (local core files). Place files in libs/ffmpeg/ -->
+    <script src="libs/ffmpeg/ffmpeg.min.js"></script>
     <script>
         // 強制所有 2D context 使用 willReadFrequently，包含 gif.js 內部建立的 canvas
         (function() {
@@ -489,7 +458,7 @@
                 const { createFFmpeg } = window.FFmpeg;
                 this.ffmpeg = createFFmpeg({
                     log: false,
-                    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js'
+                    corePath: 'libs/ffmpeg/ffmpeg-core.js'
                 });
                 await this.ffmpeg.load();
             }
